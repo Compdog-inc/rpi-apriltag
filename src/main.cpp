@@ -20,33 +20,31 @@ int main(int argc, char *argv[])
     meter.start();
 
     // Initialize camera
-    VideoCapture cap(0);
+
+    std::string pipeline =
+        "v4l2src device=/dev/video0 "
+        "extra-controls=s,auto_exposure=1,exposure_time_absolute=10,backlight_compensation=2,brightness=0,gain=30 ! "
+        "image/jpeg,width=640,height=480,framerate=120/1 ! "
+        "jpegdec ! "
+        "videoconvert ! "
+        "video/x-raw,format=GRAY8 ! "
+        "appsink max-buffers=1 drop=true sync=false";
+
+    VideoCapture cap(pipeline, cv::CAP_GSTREAMER);
     if (!cap.isOpened())
     {
         cerr << "Couldn't open video capture device" << endl;
         return -1;
     }
 
-    cap.set(cv::CAP_PROP_FOURCC,
-            cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
-
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
-    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 800);
-    cap.set(cv::CAP_PROP_FPS, 120);
-
-    cap.set(cv::CAP_PROP_AUTO_EXPOSURE, 1);
-    cap.set(cv::CAP_PROP_EXPOSURE, -6);
-    cap.set(cv::CAP_PROP_GAIN, 0);
-    cap.set(cv::CAP_PROP_BRIGHTNESS, 0);
-
     // Initialize tag detector
     apriltag_family_t *tf = tagCircle21h7_create();
     apriltag_detector_t *td = apriltag_detector_create();
-    apriltag_detector_add_family(td, tf);
+    apriltag_detector_add_family_bits(td, tf, 0);
 
     if (errno == ENOMEM)
     {
-        printf("Unable to add family to detector due to insufficient memory to allocate the tag-family decoder with the default maximum hamming value of 2. Try choosing an alternative tag family.\n");
+        printf("Unable to add family to detector due to insufficient memory to allocate the tag-family decoder with a maximum hamming value of 0.\n");
         exit(-1);
     }
 
@@ -66,12 +64,11 @@ int main(int argc, char *argv[])
 #endif
     meter.reset();
 
-    Mat frame, gray;
+    Mat gray;
     while (true)
     {
         errno = 0;
-        cap >> frame;
-        cvtColor(frame, gray, COLOR_BGR2GRAY);
+        cap >> gray;
 
         // Make an image_u8_t header for the Mat data
         image_u8_t im = {gray.cols, gray.rows, gray.cols, gray.data};
@@ -89,16 +86,20 @@ int main(int argc, char *argv[])
         {
             apriltag_detection_t *det;
             zarray_get(detections, i, &det);
-            line(frame, Point(det->p[0][0], det->p[0][1]),
+
+            if (det->decision_margin < 30)
+                continue;
+
+            line(gray, Point(det->p[0][0], det->p[0][1]),
                  Point(det->p[1][0], det->p[1][1]),
                  Scalar(0, 0xff, 0), 2);
-            line(frame, Point(det->p[0][0], det->p[0][1]),
+            line(gray, Point(det->p[0][0], det->p[0][1]),
                  Point(det->p[3][0], det->p[3][1]),
                  Scalar(0, 0, 0xff), 2);
-            line(frame, Point(det->p[1][0], det->p[1][1]),
+            line(gray, Point(det->p[1][0], det->p[1][1]),
                  Point(det->p[2][0], det->p[2][1]),
                  Scalar(0xff, 0, 0), 2);
-            line(frame, Point(det->p[2][0], det->p[2][1]),
+            line(gray, Point(det->p[2][0], det->p[2][1]),
                  Point(det->p[3][0], det->p[3][1]),
                  Scalar(0xff, 0, 0), 2);
 
@@ -110,12 +111,12 @@ int main(int argc, char *argv[])
             int baseline;
             Size textsize = getTextSize(text, fontface, fontscale, 2,
                                         &baseline);
-            putText(frame, text, Point(det->c[0] - textsize.width / 2, det->c[1] + textsize.height / 2),
+            putText(gray, text, Point(det->c[0] - textsize.width / 2, det->c[1] + textsize.height / 2),
                     fontface, fontscale, Scalar(0xff, 0x99, 0), 2);
         }
         apriltag_detections_destroy(detections);
 
-        imshow("Tag Detections", frame);
+        imshow("Tag Detections", gray);
         if (waitKey(1) >= 0)
             break;
     }
