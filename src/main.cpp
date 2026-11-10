@@ -1,7 +1,7 @@
 #include <iostream>
 #include <iomanip>
 
-#include "opencv2/opencv.hpp"
+#include <opencv2/opencv.hpp>
 
 extern "C"
 {
